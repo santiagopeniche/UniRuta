@@ -88,6 +88,12 @@ npm run db:seed     # crea las tablas y carga datos de ejemplo
 npm run dev         # API en http://localhost:4000
 ```
 
+Si tu PostgreSQL es portable (carpetas `pgsql` y `pgsql-data` en tu usuario de Windows), enciéndelo así antes de `npm run dev`. Queda corriendo en segundo plano aunque cierres la ventana:
+
+```powershell
+Start-Process -WindowStyle Hidden "$HOME\pgsql\bin\pg_ctl.exe" -ArgumentList "-D `"$HOME\pgsql-data`" -l `"$HOME\pgsql-data\servidor.log`" start"
+```
+
 Con `EMAIL_MODE=console` los correos de confirmación no se envían: se imprimen en la terminal del backend. Copia de ahí el enlace `http://localhost:5173/verificar?token=...` para confirmar una cuenta nueva.
 
 ### 3. Frontend
