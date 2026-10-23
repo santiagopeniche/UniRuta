@@ -1,13 +1,21 @@
 // Estructura de las pantallas de registro e inicio de sesión.
 import { Logo, AvisoDemo } from './Marco';
+import { MODO_DEMO } from '../api';
 import logoCompleto from '../assets/logo-utb.png';
 
 export default function MarcoAcceso({ titulo, subtitulo, children }) {
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <div className="md:col-span-2">
-        <AvisoDemo />
-      </div>
+    // La fila del aviso de demo solo existe en la demo; en la app real la pantalla es una sola fila
+    <div
+      className={`min-h-dvh md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] ${
+        MODO_DEMO ? 'md:grid-rows-[auto_1fr]' : 'md:grid-rows-[1fr]'
+      }`}
+    >
+      {MODO_DEMO && (
+        <div className="md:col-span-2">
+          <AvisoDemo />
+        </div>
+      )}
 
       <aside className="relative overflow-hidden bg-tinta px-6 pb-10 pt-8 text-white md:flex md:flex-col md:justify-between md:px-12 md:py-12">
         <Logo claro />
@@ -20,7 +28,7 @@ export default function MarcoAcceso({ titulo, subtitulo, children }) {
           </p>
         </div>
         {/* la línea de ruta, en grande, como firma visual */}
-        <svg viewBox="0 0 400 120" className="mt-10 hidden w-full max-w-md md:block" aria-hidden="true">
+        <svg viewBox="0 0 400 136" className="mt-10 hidden w-full max-w-md overflow-visible md:block" aria-hidden="true">
           <path d="M14 96 C 120 96, 140 24, 250 24 S 360 60, 386 24" fill="none" stroke="#80BA25" strokeWidth="7" strokeLinecap="round" />
           <circle cx="14" cy="96" r="11" fill="#0B1936" stroke="#fff" strokeWidth="5" />
           <circle cx="386" cy="24" r="11" fill="#fff" />
