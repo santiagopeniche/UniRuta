@@ -1,0 +1,21 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno: NUNCA subir credenciales reales
+.env
+.env.local
+.env.*.local
+!.env.example
+!frontend/.env.demo
+
+# Builds
+frontend/dist/
+frontend/dist-demo/
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+coverage/

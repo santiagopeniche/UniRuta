@@ -1,0 +1,50 @@
+# Blueprint de Render: crea la base de datos PostgreSQL y el servidor de la API.
+# En Render: New > Blueprint > selecciona este repositorio.
+# Después de crearlo, completa FRONTEND_URL con la URL que te dé Vercel.
+databases:
+  - name: uniruta-db
+    databaseName: uniruta
+    plan: free
+
+services:
+  - type: web
+    name: uniruta-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/salud
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: uniruta-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOWED_EMAIL_DOMAIN
+        value: utb.edu.co
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "true"
+      - key: FRONTEND_URL
+        sync: false
+      - key: EMAIL_MODE
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_AVISOS
+        value: "false"
