@@ -22,6 +22,7 @@ Además: perfil con modo pasajero/conductor y placa, historial de viajes, cancel
 
 ## Tecnologías
 
+- **Identidad visual:** logo y azul (`#093AD8`) de la UTB; los archivos del logo están en `frontend/src/assets/`.
 - **Frontend:** React 18, React Router, Tailwind CSS 4, Vite (`frontend/`)
 - **Backend:** Node.js, Express, `pg`, JWT, bcrypt, Nodemailer (`backend/`)
 - **Base de datos:** PostgreSQL

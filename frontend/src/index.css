@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Archivo', system-ui, sans-serif;
+  --font-sans: 'Atkinson Hyperlegible', system-ui, sans-serif;
+
+  /* Colores institucionales de la UTB (tomados de utb.edu.co) */
+  --color-tinta: #0b1936; /* azul noche */
+  --color-mar: #093ad8; /* azul de la marca UTB (el del logo): acciones principales */
+  --color-mar-oscuro: #072ca6;
+  --color-mar-claro: #e8edfc;
+  --color-turquesa: #218aa7; /* turquesa UTB: foco y detalles */
+  --color-muralla: #80ba25; /* verde UTB: la línea de ruta */
+  --color-fondo: #f4f7f9;
+  --color-gris: #556274;
+  --color-linea: #d9e1e8;
+  --color-ambar: #7a5c00;
+  --color-ambar-claro: #fbf1d3;
+  --color-alerta: #b42318;
+  --color-alerta-claro: #fdecea;
+  --color-exito: #1b7a46;
+  --color-exito-claro: #e6f4ec;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-fondo text-tinta font-sans antialiased;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    font-stretch: 87.5%;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-turquesa);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility campo {
+  @apply w-full rounded-[10px] border border-linea bg-white px-3.5 py-3 text-base text-tinta placeholder:text-gris/70;
+  @apply focus:border-mar focus:outline-none focus:ring-2 focus:ring-mar/25;
+}
+@utility etiqueta {
+  @apply mb-1.5 block text-sm font-bold text-tinta;
+}
+@utility boton {
+  @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-[10px] px-5 text-base font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility boton-principal {
+  @apply boton bg-mar text-white hover:bg-mar-oscuro;
+}
+@utility boton-secundario {
+  @apply boton border border-linea bg-white text-tinta hover:border-tinta/40;
+}
+@utility boton-peligro {
+  @apply boton border border-alerta/30 bg-white text-alerta hover:bg-alerta-claro;
+}
+@utility panel {
+  @apply rounded-xl border border-linea bg-white;
+}
+
+/* Aparición del aviso flotante: la única animación automática de la app */
+@keyframes entrar-aviso {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.animar-aviso {
+  animation: entrar-aviso 180ms ease-out;
+}
