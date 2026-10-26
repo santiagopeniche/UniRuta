@@ -119,3 +119,114 @@ describe('Último cupo (riesgo de sobreventa, sección 9.10)', () => {
     expect(rows[0].estado).toBe('rechazada');
   });
 });
+
+describe('Choques de horario del pasajero', () => {
+  const pedir = (viaje, p) => api().post(`/api/viajes/${viaje}/solicitudes`).set(p.auth);
+  const estadoDe = async (solicitudId) =>
+    (await pool.query('SELECT estado FROM solicitud WHERE id = $1', [solicitudId])).rows[0].estado;
+
+  test('con un cupo confirmado, no puede pedir otro viaje a menos de 1 hora; a 3 horas sí', async () => {
+    const c1 = await crearUsuario({ rol: 'conductor' });
+    const c2 = await crearUsuario({ rol: 'conductor' });
+    const p = await crearUsuario();
+    const v1 = await crearViaje(c1.usuario.id, { horas: 10 });
+    const cercano = await crearViaje(c2.usuario.id, { horas: 10.5 });
+    const lejano = await crearViaje(c2.usuario.id, { horas: 13 });
+
+    const s1 = (await pedir(v1, p)).body.solicitud.id;
+    await api().post(`/api/solicitudes/${s1}/aceptar`).set(c1.auth);
+
+    const res = await pedir(cercano, p);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Ya tienes un cupo confirmado/);
+    expect((await pedir(lejano, p)).status).toBe(201);
+  });
+
+  test('puede pedir en varios viajes a la misma hora; al aceptarlo en uno, los demás se cancelan con aviso', async () => {
+    const c1 = await crearUsuario({ rol: 'conductor' });
+    const c2 = await crearUsuario({ rol: 'conductor' });
+    const c3 = await crearUsuario({ rol: 'conductor' });
+    const p = await crearUsuario();
+    const vA = await crearViaje(c1.usuario.id, { horas: 10 });
+    const vB = await crearViaje(c2.usuario.id, { horas: 10.25 });
+    const vOtroDia = await crearViaje(c3.usuario.id, { horas: 30 });
+
+    const sA = (await pedir(vA, p)).body.solicitud.id;
+    const sB = (await pedir(vB, p)).body.solicitud.id;
+    const sOtroDia = (await pedir(vOtroDia, p)).body.solicitud.id;
+
+    const res = await api().post(`/api/solicitudes/${sA}/aceptar`).set(c1.auth);
+    expect(res.status).toBe(200);
+    expect(res.body.solicitud.otrasCanceladas).toBe(1);
+
+    expect(await estadoDe(sB)).toBe('cancelada');
+    expect(await estadoDe(sOtroDia)).toBe('pendiente'); // otro día no choca
+    expect(await avisosDe(c2.usuario.id)).toEqual(['solicitud_nueva', 'solicitud_cancelada']);
+
+    // el segundo conductor ya no lo puede aceptar, y se le dice el motivo real
+    const tarde = await api().post(`/api/solicitudes/${sB}/aceptar`).set(c2.auth);
+    expect(tarde.status).toBe(409);
+    expect(tarde.body.error).toMatch(/ya tiene un cupo confirmado en otro viaje/);
+    expect(await cupos(vB)).toBe(3);
+  });
+
+  test('dos conductores aceptan al mismo pasajero al mismo tiempo: solo uno lo logra', async () => {
+    const c1 = await crearUsuario({ rol: 'conductor' });
+    const c2 = await crearUsuario({ rol: 'conductor' });
+    const p = await crearUsuario();
+    const vA = await crearViaje(c1.usuario.id, { horas: 10 });
+    const vB = await crearViaje(c2.usuario.id, { horas: 10.5 });
+    const sA = (await pedir(vA, p)).body.solicitud.id;
+    const sB = (await pedir(vB, p)).body.solicitud.id;
+
+    const [rA, rB] = await Promise.all([
+      api().post(`/api/solicitudes/${sA}/aceptar`).set(c1.auth),
+      api().post(`/api/solicitudes/${sB}/aceptar`).set(c2.auth),
+    ]);
+
+    expect([rA.status, rB.status].sort()).toEqual([200, 409]);
+    const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM solicitud WHERE pasajero_id = $1 AND estado = 'aceptada'`, [
+      p.usuario.id,
+    ]);
+    expect(rows[0].n).toBe(1);
+    // solo el viaje que ganó perdió un cupo
+    expect((await cupos(vA)) + (await cupos(vB))).toBe(5);
+  });
+
+  test('si cancela su cupo confirmado, ya puede pedir otro viaje a esa hora', async () => {
+    const c1 = await crearUsuario({ rol: 'conductor' });
+    const c2 = await crearUsuario({ rol: 'conductor' });
+    const p = await crearUsuario();
+    const vA = await crearViaje(c1.usuario.id, { horas: 10 });
+    const vB = await crearViaje(c2.usuario.id, { horas: 10.5 });
+    const sA = (await pedir(vA, p)).body.solicitud.id;
+    await api().post(`/api/solicitudes/${sA}/aceptar`).set(c1.auth);
+    expect((await pedir(vB, p)).status).toBe(409);
+
+    await api().post(`/api/solicitudes/${sA}/cancelar`).set(p.auth);
+    expect((await pedir(vB, p)).status).toBe(201);
+  });
+
+  test('quien conduce a esa hora no puede pedir cupo, y quien tiene cupo no puede publicar a esa hora', async () => {
+    const c1 = await crearUsuario({ rol: 'conductor' });
+    const c2 = await crearUsuario({ rol: 'conductor' });
+    const vPropio = await crearViaje(c1.usuario.id, { horas: 10 });
+    const vAjeno = await crearViaje(c2.usuario.id, { horas: 10.5 });
+
+    const res = await pedir(vAjeno, c1);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/viaje publicado como conductor/);
+
+    // c2 tiene cupo en el viaje de c1 y luego intenta publicar a la misma hora
+    const c3 = await crearUsuario({ rol: 'conductor' });
+    const sC3 = (await pedir(vPropio, c3)).body.solicitud.id;
+    await api().post(`/api/solicitudes/${sC3}/aceptar`).set(c1.auth);
+    const d = new Date(Date.now() + 10.25 * 3600 * 1000 - 5 * 3600 * 1000).toISOString();
+    const pub = await api()
+      .post('/api/viajes')
+      .set(c3.auth)
+      .send({ origen: 'Crespo', destino: 'UTB Campus', puntoEncuentro: 'Estación', fecha: d.slice(0, 10), hora: d.slice(11, 16), cupos: 2 });
+    expect(pub.status).toBe(409);
+    expect(pub.body.error).toMatch(/cupo confirmado como pasajero/);
+  });
+});

@@ -144,6 +144,22 @@ const participantes = (db, v) => [
     .filter((s) => s.viajeId === v.id && s.estado === 'aceptada')
     .map((s) => ({ ...db.usuarios.find((u) => u.id === s.pasajeroId), papel: 'pasajero' })),
 ];
+// Choques de horario (igual que el backend): ±1 hora alrededor del viaje
+const VENTANA_CHOQUE_MS = MS_HORA;
+const aLaMismaHora = (a, b) => Math.abs(new Date(a.fechaHora) - new Date(b.fechaHora)) <= VENTANA_CHOQUE_MS;
+const horaDe = (v) => {
+  const [h, m] = partesColombia(v.fechaHora).hora.split(':').map(Number);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+};
+function buscarChoques(db, usuarioId, viaje) {
+  const activosCerca = db.viajes.filter((x) => x.id !== viaje.id && x.estado === 'activo' && aLaMismaHora(x, viaje));
+  return {
+    comoPasajero: activosCerca.find((x) =>
+      db.solicitudes.some((s) => s.viajeId === x.id && s.pasajeroId === usuarioId && s.estado === 'aceptada')
+    ),
+    comoConductor: activosCerca.find((x) => x.conductorId === usuarioId),
+  };
+}
 const calificable = (v) =>
   v.estado === 'finalizado' || (v.estado === 'activo' && Date.now() >= new Date(v.fechaHora).getTime() + 2 * MS_HORA);
 function buscarViaje(db, id) {
@@ -270,6 +286,11 @@ export const apiDemo = {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d.fecha || '') || !/^\d{2}:\d{2}$/.test(d.hora || '')) error(400, 'Indica la fecha y la hora del viaje');
       const fechaHora = new Date(`${d.fecha}T${d.hora}:00-05:00`);
       if (fechaHora <= new Date()) error(400, 'La fecha y hora del viaje deben ser futuras');
+      const choques = buscarChoques(db, u.id, { id: null, fechaHora: fechaHora.toISOString() });
+      if (choques.comoConductor) error(409, 'Ya tienes un viaje publicado cerca de esa hora');
+      if (choques.comoPasajero) {
+        error(409, `Tienes un cupo confirmado como pasajero a esa hora (${horaDe(choques.comoPasajero)}). Cancélalo antes de publicar un viaje a esa hora.`);
+      }
       const cupos = Number(d.cupos);
       if (!Number.isInteger(cupos) || cupos < 1 || cupos > 6) error(400, 'El campo "cupos" debe estar entre 1 y 6');
       const aporte = d.aporteSugerido === '' || d.aporteSugerido == null ? null : Number(d.aporteSugerido);
@@ -384,6 +405,11 @@ export const apiDemo = {
       if (v.estado !== 'activo') error(409, 'Este viaje ya no está disponible');
       if (new Date(v.fechaHora) <= new Date()) error(409, 'Este viaje ya salió');
       if (v.cuposDisponibles <= 0) error(409, 'Este viaje ya no tiene cupos');
+      const choques = buscarChoques(db, u.id, v);
+      if (choques.comoPasajero) {
+        error(409, `Ya tienes un cupo confirmado en el viaje ${ruta(choques.comoPasajero)} (${horaDe(choques.comoPasajero)}). Cancélalo si prefieres este.`);
+      }
+      if (choques.comoConductor) error(409, `Tienes un viaje publicado como conductor a esa hora (${horaDe(choques.comoConductor)}).`);
       let s = db.solicitudes.find((x) => x.viajeId === v.id && x.pasajeroId === u.id);
       if (s?.estado === 'pendiente') error(409, 'Ya pediste cupo en este viaje; espera la respuesta del conductor');
       if (s?.estado === 'aceptada') error(409, 'Ya tienes un cupo confirmado en este viaje');
@@ -506,6 +532,12 @@ function responder(db, id, aceptar) {
   if (!s) error(404, 'La solicitud no existe');
   const v = db.viajes.find((x) => x.id === s.viajeId);
   if (v.conductorId !== u.id) error(403, 'Solo el conductor del viaje puede responder esta solicitud');
+  if (aceptar) {
+    const choques = buscarChoques(db, s.pasajeroId, v);
+    if (choques.comoPasajero || choques.comoConductor) {
+      error(409, 'Este pasajero ya tiene un cupo confirmado en otro viaje a esa misma hora.');
+    }
+  }
   if (s.estado !== 'pendiente') error(409, `Esta solicitud ya fue ${s.estado}`);
   if (v.estado !== 'activo') error(409, 'El viaje ya no está activo');
   if (!aceptar) {
@@ -516,7 +548,22 @@ function responder(db, id, aceptar) {
   if (v.cuposDisponibles <= 0) error(409, 'El viaje ya no tiene cupos disponibles');
   v.cuposDisponibles -= 1;
   s.estado = 'aceptada';
-  avisar(db, s.pasajeroId, 'solicitud_aceptada', `¡Tienes cupo! El conductor aceptó tu solicitud para el viaje ${ruta(v)}.`, v.id);
+  // sus otras solicitudes pendientes a esa hora se cancelan y se avisa a esos conductores
+  const liberadas = db.solicitudes.filter((x) => {
+    if (x.pasajeroId !== s.pasajeroId || x.estado !== 'pendiente' || x.viajeId === v.id) return false;
+    const otro = db.viajes.find((y) => y.id === x.viajeId);
+    return otro.estado === 'activo' && aLaMismaHora(otro, v);
+  });
+  const nombre = db.usuarios.find((x) => x.id === s.pasajeroId).nombre;
+  liberadas.forEach((x) => {
+    x.estado = 'cancelada';
+    const otro = db.viajes.find((y) => y.id === x.viajeId);
+    avisar(db, otro.conductorId, 'solicitud_cancelada', `${nombre} consiguió cupo en otro viaje a la misma hora, así que su solicitud en tu viaje ${ruta(otro)} se canceló.`, otro.id);
+  });
+  const extra = liberadas.length
+    ? ` Cancelamos ${liberadas.length === 1 ? 'tu otra solicitud' : `tus otras ${liberadas.length} solicitudes`} a esa hora.`
+    : '';
+  avisar(db, s.pasajeroId, 'solicitud_aceptada', `¡Tienes cupo! El conductor aceptó tu solicitud para el viaje ${ruta(v)}.${extra}`, v.id);
   if (v.cuposDisponibles === 0) {
     db.solicitudes
       .filter((x) => x.viajeId === v.id && x.estado === 'pendiente')

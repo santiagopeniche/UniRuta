@@ -7,6 +7,8 @@ const v = require('../../utils/validacion');
 
 const TZ = config.zonaHoraria;
 const MINUTOS_ANTES_PARA_FINALIZAR = 30;
+// Dos viajes a menos de esta distancia se consideran a la misma hora
+const VENTANA_CHOQUE = '1 hour';
 const HORAS_PARA_CALIFICAR_SIN_FINALIZAR = 2;
 
 // Columnas comunes de un viaje, con fecha y hora ya en hora de Colombia para la interfaz
@@ -43,17 +45,45 @@ function validarDatosViaje(datos, ahora = new Date()) {
   return { origen, destino, puntoEncuentro, fechaHora, cupos, aporteSugerido, notas };
 }
 
+/**
+ * Choques de horario de un usuario alrededor de `fechaHora` (±1 hora, la misma ventana para todo):
+ * - comoPasajero: un viaje activo donde ya tiene un cupo confirmado
+ * - comoConductor: un viaje activo que él mismo publicó
+ * Nadie puede estar en dos carros a la vez, así que cualquiera de los dos impide tomar otro viaje.
+ */
+async function buscarChoques(ejecutor, usuarioId, fechaHora, excluirViajeId = null) {
+  const ventana = `BETWEEN $2::timestamptz - INTERVAL '${VENTANA_CHOQUE}' AND $2::timestamptz + INTERVAL '${VENTANA_CHOQUE}'`;
+  const [pasajero, conductor] = await Promise.all([
+    ejecutor.query(
+      `SELECT v.id, v.origen, v.destino, v.fecha_hora FROM solicitud s JOIN viaje v ON v.id = s.viaje_id
+        WHERE s.pasajero_id = $1 AND s.estado = 'aceptada' AND v.estado = 'activo'
+          AND v.id IS DISTINCT FROM $3 AND v.fecha_hora ${ventana}
+        ORDER BY v.fecha_hora LIMIT 1`,
+      [usuarioId, fechaHora, excluirViajeId]
+    ),
+    ejecutor.query(
+      `SELECT id, origen, destino, fecha_hora FROM viaje
+        WHERE conductor_id = $1 AND estado = 'activo' AND id IS DISTINCT FROM $3 AND fecha_hora ${ventana}
+        ORDER BY fecha_hora LIMIT 1`,
+      [usuarioId, fechaHora, excluirViajeId]
+    ),
+  ]);
+  return { comoPasajero: pasajero.rows[0] || null, comoConductor: conductor.rows[0] || null };
+}
+
 /** RF-03: el conductor publica un viaje. */
 async function publicar(conductorId, datos) {
   const d = validarDatosViaje(datos);
 
-  // Evita que el mismo conductor publique dos viajes con menos de 1 hora de diferencia
-  const { rows: cruce } = await query(
-    `SELECT id FROM viaje WHERE conductor_id = $1 AND estado = 'activo'
-        AND fecha_hora BETWEEN $2::timestamptz - INTERVAL '1 hour' AND $2::timestamptz + INTERVAL '1 hour'`,
-    [conductorId, d.fechaHora]
-  );
-  if (cruce[0]) throw conflicto('Ya tienes un viaje publicado cerca de esa hora');
+  // Evita que el conductor publique dos viajes seguidos o publique mientras tiene un cupo como pasajero
+  const choques = await buscarChoques({ query }, conductorId, d.fechaHora);
+  if (choques.comoConductor) throw conflicto('Ya tienes un viaje publicado cerca de esa hora');
+  if (choques.comoPasajero) {
+    throw conflicto(
+      `Tienes un cupo confirmado como pasajero a esa hora (${v.horaLegible(choques.comoPasajero.fecha_hora)}). ` +
+        'Cancélalo antes de publicar un viaje a esa hora.'
+    );
+  }
 
   const { rows } = await query(
     `INSERT INTO viaje (conductor_id, origen, destino, punto_encuentro, fecha_hora, cupos_totales, cupos_disponibles, aporte_sugerido, notas)
@@ -304,7 +334,9 @@ async function historial(usuarioId) {
 }
 
 module.exports = {
+  VENTANA_CHOQUE,
   validarDatosViaje,
+  buscarChoques,
   publicar,
   obtenerViaje,
   buscar,

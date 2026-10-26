@@ -128,7 +128,7 @@ cd backend
 npm test
 ```
 
-Corre 56 pruebas (unitarias y de integración) contra la base `uniruta_test`, que se vacía en cada corrida. Incluye la prueba de concurrencia del último cupo: dos aceptaciones simultáneas y solo una gana (riesgo de la sección 9.10).
+Corre 61 pruebas (unitarias y de integración) contra la base `uniruta_test`, que se vacía en cada corrida. Incluye dos pruebas de concurrencia: dos aceptaciones simultáneas por el último cupo (riesgo de la sección 9.10) y dos conductores aceptando al mismo pasajero a la misma hora. En ambas, solo una gana.
 
 ## Demo sin servidor
 
@@ -184,7 +184,8 @@ Todas las rutas, salvo las de `/api/auth`, exigen el encabezado `Authorization: 
 
 ## Decisiones técnicas
 
-- **Cupos guardados en la tabla `viaje`** (sección 9.6). Para evitar sobreventa, aceptar una solicitud bloquea el viaje con `SELECT ... FOR UPDATE` y verifica y descuenta el cupo en la misma transacción. Cuando el viaje se llena, las solicitudes pendientes se rechazan solas y se avisa a esos pasajeros.
+- **Cupos guardados en la tabla `viaje`** (sección 9.6). Para evitar sobreventa, aceptar una solicitud bloquea el viaje con `SELECT ... FOR NO KEY UPDATE` y verifica y descuenta el cupo en la misma transacción. Cuando el viaje se llena, las solicitudes pendientes se rechazan solas y se avisa a esos pasajeros.
+- **Un pasajero no puede estar en dos carros a la vez.** Dos viajes a menos de 1 hora se consideran a la misma hora. El pasajero puede pedir cupo en varios mientras estén pendientes, pero no si ya tiene uno confirmado (o si él mismo conduce) a esa hora. Al aceptarlo en uno, sus otras solicitudes pendientes en esa franja se cancelan solas y se avisa a esos conductores. Para que dos conductores no lo acepten al mismo tiempo, aceptar bloquea primero la fila del pasajero y después la solicitud y el viaje; ese orden fijo evita bloqueos mutuos (*deadlocks*). Un conductor con un cupo confirmado tampoco puede publicar un viaje a esa hora.
 - **Tabla `aviso` agregada al modelo** para que las notificaciones funcionen dentro de la app aunque no haya un servidor de correo configurado. El aviso se guarda en la misma transacción que la acción que lo origina. Los avisos por correo se activan con `EMAIL_AVISOS=true`.
 - **Columnas agregadas a `usuario`:** `verificado` y `token_verificacion` (confirmación de correo), `telefono` y `vehiculo`. Y a `viaje`: `aporte_sugerido`, `notas` y `estado` (`activo`, `finalizado`, `cancelado`).
 - **Privacidad:** el celular y la placa del conductor solo los ven los pasajeros aceptados; el perfil público no muestra correo ni teléfono.

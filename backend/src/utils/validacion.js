@@ -58,6 +58,14 @@ function fechaHoraColombia(fecha, hora) {
   return new Date(`${fecha}T${hora}:00-05:00`);
 }
 
+/** Hora de Colombia legible, por ejemplo "6:15 a. m.", para los mensajes de error y avisos. */
+function horaLegible(fecha) {
+  const d = new Date(new Date(fecha).getTime() - 5 * 3600 * 1000);
+  const h = d.getUTCHours();
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${h % 12 === 0 ? 12 : h % 12}:${m} ${h < 12 ? 'a. m.' : 'p. m.'}`;
+}
+
 /** Quita tildes y pasa a minúsculas, para buscar "Turbaco" con "turbacó" o "Crespo" con "crespo". */
 const normalizarBusqueda = (texto) =>
   textoLimpio(texto)
@@ -76,5 +84,6 @@ module.exports = {
   esFecha,
   esHora,
   fechaHoraColombia,
+  horaLegible,
   normalizarBusqueda,
 };
